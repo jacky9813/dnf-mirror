@@ -1,0 +1,100 @@
+#!/bin/sh
+BASEURL=
+LOCALPATH=
+VERBOSE=false
+DOWNLOADTHREADS=20
+REPONAME=
+PROGRAMDIR=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
+
+VERSION="20.07.05-beta"
+
+helpmsg () {
+    cat << EOF
+DNF Repository Mirroring Tool (version: $VERSION)
+Use this tool with only ONE Repository at a time
+
+Usage: ${BASH_SOURCE[0]} [Options]
+
+Options:
+    -h. --help                  Show this message
+    --version                   Show version information
+
+    --reponame=<NAME>           The name to display on messages and logs
+    --remoterepo=<URL>          Specifies source repository location. HTTP or HTTPS only
+    --localrepo=<PATH>          Specifies destination repository location.
+    --download-threads=<NUMBER> Number of threads to be used when downloading
+
+    --verbose                   Enable verbose
+
+
+Usage for all system repository is in developement.
+EOF
+}
+get_date () {
+    echo $(date "+%Y-%m-%d %H:%M:%S")
+}
+
+# Parsing Options
+for i in "$@"; do
+case $i in
+    -h|--help)
+        helpmsg
+        exit 0
+        ;;
+    --version)
+        echo $VERSION
+        exit 0
+        ;;
+    --remoterepo=*)
+        BASEURL=${i#*=}
+        ;;
+    --localrepo=*)
+        LOCALPATH=${i#*=}
+        ;;
+    --download-threads=*)
+        TEMP=${i#*=}
+        RE='^[0-9]+$'
+        if ! [[ $TEMP =~ $RE ]] ; then
+            echo "--download-threads=<NUMBER> shoudl be inputed"
+        else
+            DOWNLOADTHREADS=$TEMP
+        fi
+        ;;
+    --reponame=*)
+        REPONAME=${i#*=}
+        ;;
+    --verbose)
+        VERBOSE=true
+        ;;
+    *)
+        echo Unknown Option $i >&2
+        ;;
+esac
+done
+
+if [[ $BASEURL == "" ]]; then
+    echo "ERROR: remote URL not specified"
+    helpmsg
+    exit 1
+fi
+if [[ $LOCALPATH == "" ]]; then
+    echo "ERROR: local path not specified"
+    helpmsg
+    exit 1
+fi
+
+ADDITIONALOPTIONS=
+if [[ $VERBOSE == true ]]; then
+    ADDITIONALOPTIONS="$ADDITIONALOPTIONS --verbose"
+    echo "[$(get_date)] $PROGRAMDIR/getRepodata.py --repourl=$BASEURL --basedir=$LOCALPATH --message-prefix=$REPONAME $ADDITIONALOPTIONS"
+fi
+$PROGRAMDIR/getRepodata.py --repourl=$BASEURL --basedir=$LOCALPATH $ADDITIONALOPTIONS
+RET=$?
+if [ $RET -ne 0 ]; then
+    exit $RET
+fi
+if [[ $VERBOSE == true ]]; then
+    echo "[$(get_date)] $PROGRAMDIR/getPackages.py --repourl=$BASEURL --basedir=$LOCALPATH --download-threads=$DOWNLOADTHREADS --message-prefix=$REPONAME $ADDITIONALOPTIONS"
+fi
+$PROGRAMDIR/getPackages.py --repourl=$BASEURL --basedir=$LOCALPATH --download-threads=$DOWNLOADTHREADS $ADDITIONALOPTIONS
+exit $?
