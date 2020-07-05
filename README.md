@@ -7,9 +7,9 @@ $./getrepo --localrepo=$(pwd) --remoterepo=http://mirror.centos.org/centos-8/8/A
 ```
 
 ## System Requirements
-Python 3.6+
-OpenSSL
-wget
+* Python 3.6+
+* OpenSSL
+* wget
 
 ## Features
 * Multi-threaded file check and multiple download stream.
