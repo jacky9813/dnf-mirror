@@ -1,12 +1,12 @@
 #!/bin/sh
 BASEURL=
-LOCALPATH=
+LOCALPATH=$(pwd)
 VERBOSE=false
 DOWNLOADTHREADS=20
 REPONAME=
 PROGRAMDIR=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
 
-VERSION="20.07.05-beta"
+VERSION="20.07.06-beta"
 
 helpmsg () {
     cat << EOF
