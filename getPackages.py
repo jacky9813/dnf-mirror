@@ -5,16 +5,18 @@ import datetime
 import os
 import subprocess
 from pathlib import posixpath as urlpath
-import gzip
 import threading
 import time
 import math
+import sqlite3
 
 REMOTEURL = "http://mirror.centos.org/centos-8/8/AppStream/x86_64/os/"
 LOCALURL = ""
 VERBOSE = ""
 MESSAGEPREFIX = "AppStream"
 THREADUSE = 20
+
+TEMPDBFILENAME = ".temp.sqlite"
 
 def prnt(*args, **kwargs):
     print("[%s %s]" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), MESSAGEPREFIX), *args, **kwargs)
@@ -70,7 +72,7 @@ prnt("Listing packages")
 repomd_fd = open(os.path.join(LOCALURL, "repodata", "repomd.xml"), mode="r")
 repomd_raw = repomd_fd.read()
 repomd_fd.close()
-repomd_primary = re.search(r"<data type=\"primary\">(.+?(?=<\/data>))<\/data>", repomd_raw, flags=re.S)
+repomd_primary = re.search(r"<data type=\"primary_db\">(.+?(?=<\/data>))<\/data>", repomd_raw, flags=re.S)
 if repomd_primary is None:
     prnt("ERROR: missing primary type in repomd.xml")
     exit(1)
@@ -88,34 +90,50 @@ except FileNotFoundError as e:
     prnt("primary file data location:", repomd_primary_fileloc)
     exit(1)
 
-# Read primary file
+# Read primary sqlite file
+rawdbfilepath = ""
 if VERBOSE:
     prnt("Reading primary file:", repomd_primary_fileloc)
 if re.match(r".+?(?=\.gz)\.gz$", repomd_primary_fileloc) is not None:
     if VERBOSE:
-        prnt("gzip compressed primary file detected")
-    primary_fd = gzip.open(repomd_primary_fileloc, mode="rt")
+        prnt("gzip compressed file detected")
+    dbunpack_p = subprocess.run(["gzip", "-c", "-d", repomd_primary_fileloc], stdout=subprocess.PIPE)
+    if dbunpack_p.returncode == 0: 
+        dbunpack_fd = open(TEMPDBFILENAME, mode="wb")
+        dbunpack_fd.write(dbunpack_p.stdout)
+        dbunpack_fd.flush()
+        dbunpack_fd.close()
+        rawdbfilepath = TEMPDBFILENAME
+    else:
+        prnt("ERROR: Failed to unpack primary sqlite file", file=sys.stderr)
+        exit(1)
+elif re.match(r".+?(?=\.xz)\.xz$", repomd_primary_fileloc) is not None:
+    if VERBOSE:
+        prnt("xz compressed file detected")
+    dbunpack_p = subprocess.run(["xz", "-d", "-c", repomd_primary_fileloc], stdout=subprocess.PIPE)
+    if dbunpack_p.returncode == 0: 
+        dbunpack_fd = open(TEMPDBFILENAME, mode="wb")
+        dbunpack_fd.write(dbunpack_p.stdout)
+        dbunpack_fd.flush()
+        dbunpack_fd.close()
+        rawdbfilepath = TEMPDBFILENAME
+    else:
+        prnt("ERROR: Failed to unpack primary sqlite file", file=sys.stderr)
+        exit(1)
 else:
-    primary_fd = open(repomd_primary_fileloc, mode="r")
-primary_raw = primary_fd.read()
-primary_fd.close()
+    rawdbfilepath = repomd_primary_fileloc
+db = sqlite3.Connection(rawdbfilepath)
 
-# Parsing informations
+# Sending Query String
+c = db.execute("SELECT pkgId, checksum_type, location_href, size_package FROM packages")
 packages = []
-loc_re = re.compile(r"<location href=\"([^\"]+)\"", flags=re.S)
-chksum_re = re.compile(r"<checksum type=\"([^\"]*)\"[^\>]*>([^<]*)<\/checksum>")
-size_re = re.compile(r"(<size [^>]*>)", flags=re.S)
-size_package_re = re.compile(r"package=\"(\d*)\"", flags=re.S)
-for package in re.findall(r"<package .+?(?=<\/package>)<\/package>", primary_raw, flags=re.S):
-    p = {}
-    loc = loc_re.search(package)
-    p["location"] = loc.group(1)
-    p["checksum"] = {}
-    chksum = chksum_re.search(package)
-    (p["checksum"]["type"], p["checksum"]["value"]) = chksum.groups()
-    size = size_re.search(package).group(1)
-    p["size"] = int(size_package_re.search(size).group(1))
-    packages.append(p)
+for package in c.fetchall():
+    pinfo = {}
+    pinfo["checksum"] = {}
+    (pinfo["checksum"]["value"], pinfo["checksum"]["type"], pinfo["location"], pinfo["size"]) = package
+    packages.append(pinfo)
+db.close()
+os.remove(TEMPDBFILENAME)
 
 # Check package directory existence
 try:
@@ -172,6 +190,9 @@ while getAliveThreads(check_thpool):
     time.sleep(1)
 print("Checking: %d/%d" % (len(packages), len(packages)))
 prnt("Check completed")
+if len(dl_packages) == 0:
+    prnt("All packages up to date")
+    exit(0)
 prnt(len(dl_packages), "needs to be downloaded")
 
 if len(dl_packages) > 0:
