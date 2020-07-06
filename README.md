@@ -7,13 +7,15 @@ $./getrepo --localrepo=$(pwd) --remoterepo=http://mirror.centos.org/centos-8/8/A
 ```
 
 ## System Requirements
-* Python 3.6+
+* Python 3.6+ with SQLite3 support
 * OpenSSL
 * wget
 
 ## Features
-* Multi-threaded file check and multiple download stream.
+* Multi-threaded file check.
+* Multiple download stream.
 
 ## Future Plan
 * Syncronize multiple repositories in one command
-* Read repositories from /etc/yum.repos.d
+* Get repository informations from /etc/yum.repos.d
+* Check existing repodata checksum before downloading
